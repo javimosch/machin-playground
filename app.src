@@ -1,0 +1,72 @@
+// machin-playground — "try MFL in your browser", served by one machin binary.
+//
+// GET  /          the editor page (ui.src)
+// POST /compile   MFL source -> a wasm32-wasi reactor module (run client-side)
+//
+// Execution happens in the BROWSER's wasm sandbox, so the server never runs user
+// code — it only compiles (bounded: size cap, no FFI, timeouts). Compose:
+//   machin encode framework/machweb.src ui.src app.src > app.mfl && machin build app.mfl -o playground
+
+func newid() (s) { s = to_hex(rand_bytes(8)) }
+
+func cleanup(base) {
+    remove(base + ".src")
+    remove(base + ".mfl")
+    remove(base + ".wasm")
+    remove(base + ".e1")
+    remove(base + ".e2")
+}
+
+func err_json(stage, msg) (s) {
+    s = "{\"ok\":false,\"stage\":\"" + stage + "\",\"error\":" + json(msg) + "}"
+}
+
+// compile turns the posted MFL into a wasm module. The user writes a normal
+// `func main(){...}`; we append the `export func` the wasm entry needs.
+func compile(req) (res) {
+    src := req.body
+    if len(src) == 0 { res = bad_request("empty source")  return res }
+    if len(src) > 24000 { res = bad_request("source too large (24 KB max)")  return res }
+    // no FFI in the playground — extern lets a program inject cflags/headers into cc.
+    if contains(src, "extern") { res = ok_json(err_json("reject", "extern / FFI is not allowed in the playground"))  return res }
+
+    id := newid()
+    base := "/tmp/pg-" + id
+    write_file(base + ".src", src + "\nexport func __run() { main() }\n")
+
+    ec := system("timeout 15 machin encode " + base + ".src > " + base + ".mfl 2> " + base + ".e1")
+    if ec != 0 {
+        msg := read_file(base + ".e1")
+        cleanup(base)
+        res = ok_json(err_json("compile", msg))
+        return res
+    }
+    bc := system("timeout 30 machin build " + base + ".mfl --target wasm -o " + base + ".wasm 2> " + base + ".e2")
+    if bc != 0 {
+        msg := read_file(base + ".e2")
+        cleanup(base)
+        res = ok_json(err_json("build", msg))
+        return res
+    }
+    wasm := read_file_bytes(base + ".wasm")
+    cleanup(base)
+    if len(wasm) == 0 { res = ok_json(err_json("build", "empty wasm output"))  return res }
+    res = with_header(ok_bytes("application/wasm", wasm), "Cache-Control", "no-store")
+}
+
+func handle(req) (res) {
+    if req.path == "/" { res = ok_html(page())  return res }
+    if req.path == "/health" { res = ok_text("ok")  return res }
+    if req.method == "POST" {
+        if req.path == "/compile" { res = compile(req)  return res }
+    }
+    res = not_found()
+}
+
+func main() {
+    port := 8080
+    pe := env("PORT")
+    if pe != "" { port = parse_int(pe) }
+    println("machin-playground on http://localhost:" + str(port))
+    serve(port, func(req) { return handle(req) })
+}
