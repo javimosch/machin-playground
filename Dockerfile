@@ -12,7 +12,9 @@ COPY . /src/playground
 RUN cd /src/playground && machin encode framework/machweb.src ui.src app.src > app.mfl && machin build app.mfl -o /usr/local/bin/playground
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev ca-certificates xz-utils && rm -rf /var/lib/apt/lists/*
+# No apt needed at runtime: machin is a static Go binary, the wasm build uses
+# `zig cc` (self-contained), and the playground binary needs only the glibc that
+# debian-slim already ships.
 COPY --from=build /usr/local/bin/machin /usr/local/bin/machin
 COPY --from=build /usr/local/bin/playground /usr/local/bin/playground
 COPY --from=build /opt /opt
