@@ -3,6 +3,8 @@
 **Try [machin](https://github.com/javimosch/machin) (MFL) in your browser** — write
 code, hit Run, see it execute. No install, no C compiler on your machine.
 
+### ▶ Live: **[play.intrane.fr](https://play.intrane.fr)**
+
 ![machin playground](docs/screenshot.png)
 
 The whole thing is **one machin binary** (machweb) that serves the editor page and a
